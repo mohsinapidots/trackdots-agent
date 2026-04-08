@@ -1,0 +1,11 @@
+venv*/
+dist/
+dist-x64/
+build/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.DS_Store
+*.log
+agent-bin/

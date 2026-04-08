@@ -1,0 +1,6 @@
+pynput
+psutil
+requests
+Pillow
+python-dotenv
+mss

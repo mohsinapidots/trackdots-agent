@@ -1,0 +1,3 @@
+from agent.paths import SCREENSHOTS_DIR
+
+SCREENSHOT_DIR = SCREENSHOTS_DIR
