@@ -4,6 +4,13 @@ from agent.utils.logger import get_logger
 
 log = get_logger("active_app")
 
+# Top-level import so PyInstaller sees it during static analysis and bundles
+# all Quartz extension modules. Falls back to None if not available.
+try:
+    import Quartz as _Quartz
+except ImportError:
+    _Quartz = None
+
 # Sites whose window title reveals unproductive activity inside a browser
 _BROWSER_BUNDLE_IDS = {
     'com.google.chrome', 'org.mozilla.firefox', 'com.apple.safari',
@@ -99,7 +106,28 @@ def get_active_app():
             is_browser = any(b in bid for b in ('chrome', 'firefox', 'safari', 'edge', 'brave', 'browser'))
 
             if is_browser:
-                window_title = _get_browser_title(bid)
+                # Primary: Quartz CGWindowListCopyWindowInfo reads the OS window
+                # title directly — works for every browser including Firefox.
+                if _Quartz is not None:
+                    try:
+                        app_pid = app.processIdentifier()
+                        wlist = _Quartz.CGWindowListCopyWindowInfo(
+                            _Quartz.kCGWindowListOptionOnScreenOnly |
+                            _Quartz.kCGWindowListExcludeDesktopElements,
+                            _Quartz.kCGNullWindowID,
+                        )
+                        for w in (wlist or []):
+                            if (w.get('kCGWindowOwnerPID') == app_pid and
+                                    w.get('kCGWindowLayer') == 0 and
+                                    w.get('kCGWindowName')):
+                                window_title = w['kCGWindowName']
+                                break
+                    except Exception:
+                        pass
+
+                # Fallback: AppleScript for Chrome/Safari/Edge/Brave
+                if not window_title:
+                    window_title = _get_browser_title(bid)
 
             primary = classify_window_title(app_name, bundle_id, window_title)
             return {
