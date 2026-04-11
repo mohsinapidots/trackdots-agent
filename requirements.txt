@@ -4,3 +4,4 @@ requests
 Pillow
 python-dotenv
 mss
+pyobjc-framework-Quartz; sys_platform == "darwin"
