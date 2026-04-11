@@ -3,6 +3,13 @@ from agent.utils.logger import get_logger
 
 log = get_logger("active_app")
 
+# Top-level import so PyInstaller detects and bundles the Quartz framework.
+# Falls back to None on non-macOS or if pyobjc-framework-Quartz is not installed.
+try:
+    import Quartz as _Quartz
+except ImportError:
+    _Quartz = None
+
 # Sites whose window title reveals unproductive activity inside a browser
 _BROWSER_BUNDLE_IDS = {
     'com.google.chrome', 'org.mozilla.firefox', 'com.apple.safari',
@@ -67,22 +74,22 @@ def get_active_app():
                 # Primary: Quartz CGWindowListCopyWindowInfo — reads the OS-level window
                 # title directly (e.g. "YouTube — Mozilla Firefox"). Works for every
                 # browser including Firefox without AppleScript permissions.
-                try:
-                    import Quartz
-                    app_pid = app.processIdentifier()
-                    wlist = Quartz.CGWindowListCopyWindowInfo(
-                        Quartz.kCGWindowListOptionOnScreenOnly |
-                        Quartz.kCGWindowListExcludeDesktopElements,
-                        Quartz.kCGNullWindowID,
-                    )
-                    for w in (wlist or []):
-                        if (w.get('kCGWindowOwnerPID') == app_pid and
-                                w.get('kCGWindowLayer') == 0 and
-                                w.get('kCGWindowName')):
-                            window_title = w['kCGWindowName']
-                            break
-                except Exception:
-                    pass
+                if _Quartz is not None:
+                    try:
+                        app_pid = app.processIdentifier()
+                        wlist = _Quartz.CGWindowListCopyWindowInfo(
+                            _Quartz.kCGWindowListOptionOnScreenOnly |
+                            _Quartz.kCGWindowListExcludeDesktopElements,
+                            _Quartz.kCGNullWindowID,
+                        )
+                        for w in (wlist or []):
+                            if (w.get('kCGWindowOwnerPID') == app_pid and
+                                    w.get('kCGWindowLayer') == 0 and
+                                    w.get('kCGWindowName')):
+                                window_title = w['kCGWindowName']
+                                break
+                    except Exception:
+                        pass
 
                 # Fallback: AppleScript for Chrome/Safari/Edge/Brave (gives clean tab
                 # title without the " — Browser Name" suffix).
