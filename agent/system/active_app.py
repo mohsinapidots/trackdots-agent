@@ -1,14 +1,8 @@
 import platform
+import subprocess
 from agent.utils.logger import get_logger
 
 log = get_logger("active_app")
-
-# Top-level import so PyInstaller detects and bundles the Quartz framework.
-# Falls back to None on non-macOS or if pyobjc-framework-Quartz is not installed.
-try:
-    import Quartz as _Quartz
-except ImportError:
-    _Quartz = None
 
 # Sites whose window title reveals unproductive activity inside a browser
 _BROWSER_BUNDLE_IDS = {
@@ -28,6 +22,40 @@ PRODUCTIVE_TITLE_KEYWORDS = [
     'notion', 'jira', 'confluence', 'linear', 'figma',
 ]
 
+# AppleScript to get the active tab/window title for each browser.
+# Firefox does not expose tabs via its own AppleScript dictionary, so we use
+# System Events (Accessibility API) which works for any app and requires no
+# extra Python packages — osascript is always available on macOS.
+_BROWSER_SCRIPTS = {
+    'chrome':   'tell application "Google Chrome" to get title of active tab of front window',
+    'safari':   'tell application "Safari" to get name of front document',
+    'edge':     'tell application "Microsoft Edge" to get title of active tab of front window',
+    'brave':    'tell application "Brave Browser" to get title of active tab of front window',
+    'firefox':  'tell application "System Events" to tell process "Firefox" to get title of front window',
+    'arc':      'tell application "Arc" to get title of active tab of front window',
+}
+
+
+def _get_browser_title(bid):
+    """Run the appropriate AppleScript for the frontmost browser and return its window title."""
+    script = None
+    for key, s in _BROWSER_SCRIPTS.items():
+        if key in bid:
+            script = s
+            break
+    if not script:
+        return None
+    try:
+        r = subprocess.run(
+            ['osascript', '-e', script],
+            capture_output=True, text=True, timeout=2,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return r.stdout.strip()
+    except Exception:
+        pass
+    return None
+
 
 def classify_window_title(app_name, bundle_id, window_title):
     """
@@ -35,7 +63,7 @@ def classify_window_title(app_name, bundle_id, window_title):
     the app name to the actual site being viewed.
     Returns the string to use as primary_app.
     """
-    bid = (bundle_id or '').lower()
+    bid  = (bundle_id or '').lower()
     name = (app_name or '').lower()
 
     is_browser = bid in _BROWSER_BUNDLE_IDS or name in {'chrome', 'firefox', 'safari', 'edge', 'brave', 'arc'}
@@ -71,49 +99,7 @@ def get_active_app():
             is_browser = any(b in bid for b in ('chrome', 'firefox', 'safari', 'edge', 'brave', 'browser'))
 
             if is_browser:
-                # Primary: Quartz CGWindowListCopyWindowInfo — reads the OS-level window
-                # title directly (e.g. "YouTube — Mozilla Firefox"). Works for every
-                # browser including Firefox without AppleScript permissions.
-                if _Quartz is not None:
-                    try:
-                        app_pid = app.processIdentifier()
-                        wlist = _Quartz.CGWindowListCopyWindowInfo(
-                            _Quartz.kCGWindowListOptionOnScreenOnly |
-                            _Quartz.kCGWindowListExcludeDesktopElements,
-                            _Quartz.kCGNullWindowID,
-                        )
-                        for w in (wlist or []):
-                            if (w.get('kCGWindowOwnerPID') == app_pid and
-                                    w.get('kCGWindowLayer') == 0 and
-                                    w.get('kCGWindowName')):
-                                window_title = w['kCGWindowName']
-                                break
-                    except Exception:
-                        pass
-
-                # Fallback: AppleScript for Chrome/Safari/Edge/Brave (gives clean tab
-                # title without the " — Browser Name" suffix).
-                if not window_title:
-                    try:
-                        import subprocess
-                        scripts = {
-                            'chrome': 'tell application "Google Chrome" to get title of active tab of front window',
-                            'safari': 'tell application "Safari" to get name of front document',
-                            'edge':   'tell application "Microsoft Edge" to get title of active tab of front window',
-                            'brave':  'tell application "Brave Browser" to get title of active tab of front window',
-                        }
-                        script = None
-                        for key, s in scripts.items():
-                            if key in bid:
-                                script = s
-                                break
-                        if script:
-                            r = subprocess.run(['osascript', '-e', script],
-                                               capture_output=True, text=True, timeout=1)
-                            if r.returncode == 0:
-                                window_title = r.stdout.strip()
-                    except Exception:
-                        pass
+                window_title = _get_browser_title(bid)
 
             primary = classify_window_title(app_name, bundle_id, window_title)
             return {
@@ -154,7 +140,6 @@ def get_active_app():
 
         else:
             # Linux fallback via xdotool
-            import subprocess
             result = subprocess.run(
                 ['xdotool', 'getactivewindow', 'getwindowname'],
                 capture_output=True, text=True, timeout=2
