@@ -60,31 +60,53 @@ def get_active_app():
             bundle_id = app.bundleIdentifier() or ''
             window_title = None
 
-            # Get the front window title via AppleScript for browsers
             bid = bundle_id.lower()
-            if any(b in bid for b in ('chrome', 'firefox', 'safari', 'edge', 'brave', 'browser')):
+            is_browser = any(b in bid for b in ('chrome', 'firefox', 'safari', 'edge', 'brave', 'browser'))
+
+            if is_browser:
+                # Primary: Quartz CGWindowListCopyWindowInfo — reads the OS-level window
+                # title directly (e.g. "YouTube — Mozilla Firefox"). Works for every
+                # browser including Firefox without AppleScript permissions.
                 try:
-                    import subprocess
-                    # AppleScript works for Chrome, Firefox, Safari, Edge, Brave
-                    scripts = {
-                        'chrome':  'tell application "Google Chrome" to get title of active tab of front window',
-                        'firefox': 'tell application "Firefox" to get name of front window',
-                        'safari':  'tell application "Safari" to get name of front document',
-                        'edge':    'tell application "Microsoft Edge" to get title of active tab of front window',
-                        'brave':   'tell application "Brave Browser" to get title of active tab of front window',
-                    }
-                    script = None
-                    for key, s in scripts.items():
-                        if key in bid:
-                            script = s
+                    import Quartz
+                    app_pid = app.processIdentifier()
+                    wlist = Quartz.CGWindowListCopyWindowInfo(
+                        Quartz.kCGWindowListOptionOnScreenOnly |
+                        Quartz.kCGWindowListExcludeDesktopElements,
+                        Quartz.kCGNullWindowID,
+                    )
+                    for w in (wlist or []):
+                        if (w.get('kCGWindowOwnerPID') == app_pid and
+                                w.get('kCGWindowLayer') == 0 and
+                                w.get('kCGWindowName')):
+                            window_title = w['kCGWindowName']
                             break
-                    if script:
-                        r = subprocess.run(['osascript', '-e', script],
-                                           capture_output=True, text=True, timeout=1)
-                        if r.returncode == 0:
-                            window_title = r.stdout.strip()
                 except Exception:
                     pass
+
+                # Fallback: AppleScript for Chrome/Safari/Edge/Brave (gives clean tab
+                # title without the " — Browser Name" suffix).
+                if not window_title:
+                    try:
+                        import subprocess
+                        scripts = {
+                            'chrome': 'tell application "Google Chrome" to get title of active tab of front window',
+                            'safari': 'tell application "Safari" to get name of front document',
+                            'edge':   'tell application "Microsoft Edge" to get title of active tab of front window',
+                            'brave':  'tell application "Brave Browser" to get title of active tab of front window',
+                        }
+                        script = None
+                        for key, s in scripts.items():
+                            if key in bid:
+                                script = s
+                                break
+                        if script:
+                            r = subprocess.run(['osascript', '-e', script],
+                                               capture_output=True, text=True, timeout=1)
+                            if r.returncode == 0:
+                                window_title = r.stdout.strip()
+                    except Exception:
+                        pass
 
             primary = classify_window_title(app_name, bundle_id, window_title)
             return {
