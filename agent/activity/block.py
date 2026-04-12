@@ -28,11 +28,14 @@ class ActivityBlock:
         self.mouse_distance += mouse["distance"]
         app = get_active_app()
         if app:
-            name = app["name"]
-            self.apps[name] = self.apps.get(name, 0) + 1
+            name  = app["name"]
             title = app.get("window_title")
-            if title and title.lower() != name.lower():
-                log.info("Active: %s | tab: %s", name, title)
+            self.apps[name] = self.apps.get(name, 0) + 1
+            # Log whenever the active app or tab changes
+            label = f"{name} | {title}" if title and title.lower() != name.lower() else name
+            if label != getattr(self, '_last_label', None):
+                log.info("App: %s", label)
+                self._last_label = label
 
     def finalize(self):
         paused, _ = get_agent_state()
