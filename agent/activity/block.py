@@ -30,6 +30,9 @@ class ActivityBlock:
         if app:
             name = app["name"]
             self.apps[name] = self.apps.get(name, 0) + 1
+            title = app.get("window_title")
+            if title and title.lower() != name.lower():
+                log.info("Active: %s | tab: %s", name, title)
 
     def finalize(self):
         paused, _ = get_agent_state()
