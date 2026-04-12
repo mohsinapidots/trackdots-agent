@@ -32,7 +32,20 @@ class ActivityBlock:
             title = app.get("window_title")
             self.apps[name] = self.apps.get(name, 0) + 1
             # Log whenever the active app or tab changes
-            label = f"{name} | {title}" if title and title.lower() != name.lower() else name
+            bundle = app.get("bundle_id", "")
+            browser = None
+            for b in ("Chrome", "Firefox", "Safari", "Edge", "Brave", "Arc"):
+                if b.lower() in bundle.lower():
+                    browser = b
+                    break
+            if browser and title and title.lower() != name.lower():
+                label = f"{browser} → {name} | {title}"
+            elif browser and title:
+                label = f"{browser} | {title}"
+            elif title and title.lower() != name.lower():
+                label = f"{name} | {title}"
+            else:
+                label = name
             if label != getattr(self, '_last_label', None):
                 log.info("App: %s", label)
                 self._last_label = label
