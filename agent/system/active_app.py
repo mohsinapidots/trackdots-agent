@@ -1,15 +1,9 @@
 import platform
 import subprocess
+import ctypes
 from agent.utils.logger import get_logger
 
 log = get_logger("active_app")
-
-# Top-level import so PyInstaller sees it during static analysis and bundles
-# all Quartz extension modules. Falls back to None if not available.
-try:
-    import Quartz as _Quartz
-except ImportError:
-    _Quartz = None
 
 # Sites whose window title reveals unproductive activity inside a browser
 _BROWSER_BUNDLE_IDS = {
@@ -90,6 +84,91 @@ def classify_window_title(app_name, bundle_id, window_title):
     return app_name  # generic browser — scoring handles it
 
 
+def _cgwindow_title(app_pid):
+    """
+    Return the front window title of the process with app_pid using
+    CGWindowListCopyWindowInfo via ctypes.
+
+    Uses only macOS system frameworks (CoreFoundation + CoreGraphics) —
+    no pyobjc, nothing to bundle in PyInstaller.
+    """
+    try:
+        CF = ctypes.CDLL('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
+        CG = ctypes.CDLL('/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics')
+
+        kCFStringEncodingUTF8  = 0x08000100
+        kCFNumberSInt32Type    = 3
+        kCGWindowListOnScreen  = 1   # kCGWindowListOptionOnScreenOnly
+        kCGWindowListNoDesktop = 16  # kCGWindowListExcludeDesktopElements
+        kCGNullWindowID        = 0
+
+        CG.CGWindowListCopyWindowInfo.restype  = ctypes.c_void_p
+        CG.CGWindowListCopyWindowInfo.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
+        CF.CFArrayGetCount.restype             = ctypes.c_long
+        CF.CFArrayGetCount.argtypes            = [ctypes.c_void_p]
+        CF.CFArrayGetValueAtIndex.restype      = ctypes.c_void_p
+        CF.CFArrayGetValueAtIndex.argtypes     = [ctypes.c_void_p, ctypes.c_long]
+        CF.CFDictionaryGetValue.restype        = ctypes.c_void_p
+        CF.CFDictionaryGetValue.argtypes       = [ctypes.c_void_p, ctypes.c_void_p]
+        CF.CFNumberGetValue.restype            = ctypes.c_bool
+        CF.CFNumberGetValue.argtypes           = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p]
+        CF.CFStringGetCString.restype          = ctypes.c_bool
+        CF.CFStringGetCString.argtypes         = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_long, ctypes.c_uint32]
+        CF.CFStringCreateWithCString.restype   = ctypes.c_void_p
+        CF.CFStringCreateWithCString.argtypes  = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+        CF.CFRelease.restype                   = None
+        CF.CFRelease.argtypes                  = [ctypes.c_void_p]
+
+        def _cfstr(s):
+            return CF.CFStringCreateWithCString(None, s.encode('utf-8'), kCFStringEncodingUTF8)
+
+        key_pid   = _cfstr('kCGWindowOwnerPID')
+        key_layer = _cfstr('kCGWindowLayer')
+        key_name  = _cfstr('kCGWindowName')
+
+        arr = CG.CGWindowListCopyWindowInfo(kCGWindowListOnScreen | kCGWindowListNoDesktop, kCGNullWindowID)
+        if not arr:
+            return None
+
+        result = None
+        count  = CF.CFArrayGetCount(arr)
+        for i in range(count):
+            w = CF.CFArrayGetValueAtIndex(arr, i)
+            if not w:
+                continue
+            pid_ref = CF.CFDictionaryGetValue(w, key_pid)
+            if not pid_ref:
+                continue
+            pid_val = ctypes.c_int32(0)
+            CF.CFNumberGetValue(pid_ref, kCFNumberSInt32Type, ctypes.byref(pid_val))
+            if pid_val.value != app_pid:
+                continue
+            layer_ref = CF.CFDictionaryGetValue(w, key_layer)
+            if not layer_ref:
+                continue
+            layer_val = ctypes.c_int32(0)
+            CF.CFNumberGetValue(layer_ref, kCFNumberSInt32Type, ctypes.byref(layer_val))
+            if layer_val.value != 0:
+                continue
+            name_ref = CF.CFDictionaryGetValue(w, key_name)
+            if not name_ref:
+                continue
+            buf = ctypes.create_string_buffer(1024)
+            if CF.CFStringGetCString(name_ref, buf, 1024, kCFStringEncodingUTF8):
+                title = buf.value.decode('utf-8', errors='replace')
+                if title:
+                    result = title
+                    break
+
+        CF.CFRelease(arr)
+        CF.CFRelease(key_pid)
+        CF.CFRelease(key_layer)
+        CF.CFRelease(key_name)
+        return result
+    except Exception:
+        return None
+
+
 def get_active_app():
     try:
         if platform.system() == "Darwin":
@@ -106,24 +185,13 @@ def get_active_app():
             is_browser = any(b in bid for b in ('chrome', 'firefox', 'safari', 'edge', 'brave', 'browser'))
 
             if is_browser:
-                # Primary: Quartz CGWindowListCopyWindowInfo reads the OS window
-                # title directly — works for every browser including Firefox.
-                if _Quartz is not None:
-                    try:
-                        app_pid = app.processIdentifier()
-                        wlist = _Quartz.CGWindowListCopyWindowInfo(
-                            _Quartz.kCGWindowListOptionOnScreenOnly |
-                            _Quartz.kCGWindowListExcludeDesktopElements,
-                            _Quartz.kCGNullWindowID,
-                        )
-                        for w in (wlist or []):
-                            if (w.get('kCGWindowOwnerPID') == app_pid and
-                                    w.get('kCGWindowLayer') == 0 and
-                                    w.get('kCGWindowName')):
-                                window_title = w['kCGWindowName']
-                                break
-                    except Exception:
-                        pass
+                # Primary: CGWindowListCopyWindowInfo via ctypes.
+                # Calls CoreGraphics.framework directly — no pyobjc needed,
+                # always available on macOS, nothing to bundle in PyInstaller.
+                try:
+                    window_title = _cgwindow_title(app.processIdentifier())
+                except Exception:
+                    pass
 
                 # Fallback: AppleScript for Chrome/Safari/Edge/Brave
                 if not window_title:
