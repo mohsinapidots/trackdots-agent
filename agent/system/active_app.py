@@ -137,8 +137,10 @@ def _get_frontmost_window():
         if not arr:
             return None, None, None
 
-        result = None, None, None
-        count  = CF.CFArrayGetCount(arr)
+        # Pass 1: identify the frontmost owner from the first layer-0 window
+        frontmost_owner = None
+        frontmost_pid   = 0
+        count = CF.CFArrayGetCount(arr)
         for i in range(count):
             w = CF.CFArrayGetValueAtIndex(arr, i)
             if not w:
@@ -150,14 +152,31 @@ def _get_frontmost_window():
             if layer_val.value != 0:
                 continue
             owner = _str(CF.CFDictionaryGetValue(w, key_owner))
-            title = _str(CF.CFDictionaryGetValue(w, key_name))
-            pid_ref = CF.CFDictionaryGetValue(w, key_pid)
-            pid_val = ctypes.c_int32(0)
-            if pid_ref:
-                CF.CFNumberGetValue(pid_ref, kCFNumberSInt32Type, ctypes.byref(pid_val))
             if owner:
-                result = owner, pid_val.value, title
+                pid_ref = CF.CFDictionaryGetValue(w, key_pid)
+                pid_val = ctypes.c_int32(0)
+                if pid_ref:
+                    CF.CFNumberGetValue(pid_ref, kCFNumberSInt32Type, ctypes.byref(pid_val))
+                frontmost_owner = owner
+                frontmost_pid   = pid_val.value
                 break
+
+        # Pass 2: find the first window belonging to that owner that has a title.
+        # Firefox's first layer-0 window is often a chrome/toolbar window with no
+        # kCGWindowName — the content window (with the page title) comes later.
+        result = frontmost_owner, frontmost_pid, None
+        if frontmost_owner:
+            for i in range(count):
+                w = CF.CFArrayGetValueAtIndex(arr, i)
+                if not w:
+                    continue
+                owner = _str(CF.CFDictionaryGetValue(w, key_owner))
+                if not owner or owner != frontmost_owner:
+                    continue
+                title = _str(CF.CFDictionaryGetValue(w, key_name))
+                if title:
+                    result = frontmost_owner, frontmost_pid, title
+                    break
 
         CF.CFRelease(arr)
         CF.CFRelease(key_pid)
