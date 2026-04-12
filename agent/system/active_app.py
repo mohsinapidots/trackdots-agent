@@ -179,7 +179,9 @@ def get_active_app():
             owner_name, owner_pid, window_title = _get_frontmost_window()
 
             if owner_name:
-                # Find the NSRunningApplication for this owner to get bundle_id
+                # Find the NSRunningApplication for this owner to get bundle_id.
+                # Match by PID first; if not found (Firefox child process has a
+                # different PID than the main app), fall back to matching by name.
                 running = NSWorkspace.sharedWorkspace().runningApplications()
                 bundle_id = ''
                 app_name  = owner_name
@@ -188,6 +190,13 @@ def get_active_app():
                         bundle_id = a.bundleIdentifier() or ''
                         app_name  = a.localizedName() or owner_name
                         break
+                if not bundle_id:
+                    # PID not found — match by localizedName (covers Firefox child procs)
+                    for a in running:
+                        if (a.localizedName() or '').lower() == owner_name.lower():
+                            bundle_id = a.bundleIdentifier() or ''
+                            app_name  = a.localizedName() or owner_name
+                            break
             else:
                 # Fallback to NSWorkspace
                 app = NSWorkspace.sharedWorkspace().frontmostApplication()
