@@ -41,15 +41,11 @@ def iso(ts):
 
 
 def upload_screenshot(block_uuid, screenshot_path):
-    log.warning("UPLOAD CALLED for %s", block_uuid)
-    log.warning("screenshot_path = %r", screenshot_path)
-
     if not screenshot_path:
         log.error("Screenshot path is EMPTY → upload skipped")
         return
 
     path = Path(screenshot_path)
-    log.warning("Resolved path = %s", path)
 
     if not path.exists():
         raise RuntimeError(f"Screenshot missing on disk: {screenshot_path}")
