@@ -164,7 +164,10 @@ def sync():
 
 
         try:
-            log.warning("INGEST PAYLOAD → %s", payload)
+            log.info(
+                "Syncing block %s | app=%s | idle=%s | keys=%s | clicks=%s",
+                block_uuid[:8], primary_app or "—", bool(idle), keys, mouse_clicks,
+            )
 
             r = requests.post(
                 INGEST_URL,
