@@ -84,13 +84,15 @@ def classify_window_title(app_name, bundle_id, window_title):
     return app_name  # generic browser — scoring handles it
 
 
-def _cgwindow_title(app_pid):
+def _cgwindow_title(app_pid, app_name=None):
     """
-    Return the front window title of the process with app_pid using
-    CGWindowListCopyWindowInfo via ctypes.
+    Return the front window title for the given process using
+    CGWindowListCopyWindowInfo via ctypes (no pyobjc needed).
 
-    Uses only macOS system frameworks (CoreFoundation + CoreGraphics) —
-    no pyobjc, nothing to bundle in PyInstaller.
+    First tries matching by PID. Firefox uses a multi-process architecture
+    where the actual window is owned by a child process with a different PID,
+    so if PID matching returns nothing we fall back to matching by
+    kCGWindowOwnerName (the app display name e.g. "Firefox").
     """
     try:
         CF = ctypes.CDLL('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
@@ -122,16 +124,25 @@ def _cgwindow_title(app_pid):
         def _cfstr(s):
             return CF.CFStringCreateWithCString(None, s.encode('utf-8'), kCFStringEncodingUTF8)
 
-        key_pid   = _cfstr('kCGWindowOwnerPID')
-        key_layer = _cfstr('kCGWindowLayer')
-        key_name  = _cfstr('kCGWindowName')
+        def _cfstr_value(ref):
+            if not ref:
+                return None
+            buf = ctypes.create_string_buffer(1024)
+            if CF.CFStringGetCString(ref, buf, 1024, kCFStringEncodingUTF8):
+                return buf.value.decode('utf-8', errors='replace')
+            return None
+
+        key_pid       = _cfstr('kCGWindowOwnerPID')
+        key_layer     = _cfstr('kCGWindowLayer')
+        key_name      = _cfstr('kCGWindowName')
+        key_owner     = _cfstr('kCGWindowOwnerName')
 
         arr = CG.CGWindowListCopyWindowInfo(kCGWindowListOnScreen | kCGWindowListNoDesktop, kCGNullWindowID)
         if not arr:
             return None
 
-        result = None
-        count  = CF.CFArrayGetCount(arr)
+        count   = CF.CFArrayGetCount(arr)
+        windows = []
         for i in range(count):
             w = CF.CFArrayGetValueAtIndex(arr, i)
             if not w:
@@ -141,30 +152,37 @@ def _cgwindow_title(app_pid):
                 continue
             pid_val = ctypes.c_int32(0)
             CF.CFNumberGetValue(pid_ref, kCFNumberSInt32Type, ctypes.byref(pid_val))
-            if pid_val.value != app_pid:
-                continue
+
             layer_ref = CF.CFDictionaryGetValue(w, key_layer)
-            if not layer_ref:
-                continue
             layer_val = ctypes.c_int32(0)
-            CF.CFNumberGetValue(layer_ref, kCFNumberSInt32Type, ctypes.byref(layer_val))
+            if layer_ref:
+                CF.CFNumberGetValue(layer_ref, kCFNumberSInt32Type, ctypes.byref(layer_val))
             if layer_val.value != 0:
                 continue
-            name_ref = CF.CFDictionaryGetValue(w, key_name)
-            if not name_ref:
-                continue
-            buf = ctypes.create_string_buffer(1024)
-            if CF.CFStringGetCString(name_ref, buf, 1024, kCFStringEncodingUTF8):
-                title = buf.value.decode('utf-8', errors='replace')
-                if title:
-                    result = title
-                    break
+
+            title      = _cfstr_value(CF.CFDictionaryGetValue(w, key_name))
+            owner_name = _cfstr_value(CF.CFDictionaryGetValue(w, key_owner))
+            if title:
+                windows.append({'pid': pid_val.value, 'title': title, 'owner': owner_name})
 
         CF.CFRelease(arr)
         CF.CFRelease(key_pid)
         CF.CFRelease(key_layer)
         CF.CFRelease(key_name)
-        return result
+        CF.CFRelease(key_owner)
+
+        # Pass 1: exact PID match (works for Chrome, Safari, etc.)
+        for w in windows:
+            if w['pid'] == app_pid:
+                return w['title']
+
+        # Pass 2: match by owner name (needed for Firefox multi-process)
+        if app_name:
+            for w in windows:
+                if w['owner'] and app_name.lower() in w['owner'].lower():
+                    return w['title']
+
+        return None
     except Exception:
         return None
 
@@ -189,7 +207,7 @@ def get_active_app():
                 # Calls CoreGraphics.framework directly — no pyobjc needed,
                 # always available on macOS, nothing to bundle in PyInstaller.
                 try:
-                    window_title = _cgwindow_title(app.processIdentifier())
+                    window_title = _cgwindow_title(app.processIdentifier(), app_name)
                 except Exception:
                     pass
 
