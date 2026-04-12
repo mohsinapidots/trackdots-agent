@@ -84,15 +84,16 @@ def classify_window_title(app_name, bundle_id, window_title):
     return app_name  # generic browser — scoring handles it
 
 
-def _cgwindow_title(app_pid, app_name=None):
-    """
-    Return the front window title for the given process using
-    CGWindowListCopyWindowInfo via ctypes (no pyobjc needed).
 
-    First tries matching by PID. Firefox uses a multi-process architecture
-    where the actual window is owned by a child process with a different PID,
-    so if PID matching returns nothing we fall back to matching by
-    kCGWindowOwnerName (the app display name e.g. "Firefox").
+
+def _get_frontmost_window():
+    """
+    Returns (owner_name, pid, title) of the true frontmost window using
+    CGWindowListCopyWindowInfo. The list is ordered front-to-back so the
+    first layer-0 window with a non-empty name is the active window.
+
+    More reliable than NSWorkspace.frontmostApplication() for browsers like
+    Firefox that don't always update the NSWorkspace frontmost app correctly.
     """
     try:
         CF = ctypes.CDLL('/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation')
@@ -100,9 +101,6 @@ def _cgwindow_title(app_pid, app_name=None):
 
         kCFStringEncodingUTF8  = 0x08000100
         kCFNumberSInt32Type    = 3
-        kCGWindowListOnScreen  = 1   # kCGWindowListOptionOnScreenOnly
-        kCGWindowListNoDesktop = 16  # kCGWindowListExcludeDesktopElements
-        kCGNullWindowID        = 0
 
         CG.CGWindowListCopyWindowInfo.restype  = ctypes.c_void_p
         CG.CGWindowListCopyWindowInfo.argtypes = [ctypes.c_uint32, ctypes.c_uint32]
@@ -124,96 +122,89 @@ def _cgwindow_title(app_pid, app_name=None):
         def _cfstr(s):
             return CF.CFStringCreateWithCString(None, s.encode('utf-8'), kCFStringEncodingUTF8)
 
-        def _cfstr_value(ref):
+        def _str(ref):
             if not ref:
                 return None
             buf = ctypes.create_string_buffer(1024)
-            if CF.CFStringGetCString(ref, buf, 1024, kCFStringEncodingUTF8):
-                return buf.value.decode('utf-8', errors='replace')
-            return None
+            return buf.value.decode('utf-8', errors='replace') if CF.CFStringGetCString(ref, buf, 1024, kCFStringEncodingUTF8) else None
 
-        key_pid       = _cfstr('kCGWindowOwnerPID')
-        key_layer     = _cfstr('kCGWindowLayer')
-        key_name      = _cfstr('kCGWindowName')
-        key_owner     = _cfstr('kCGWindowOwnerName')
+        key_pid   = _cfstr('kCGWindowOwnerPID')
+        key_layer = _cfstr('kCGWindowLayer')
+        key_name  = _cfstr('kCGWindowName')
+        key_owner = _cfstr('kCGWindowOwnerName')
 
-        arr = CG.CGWindowListCopyWindowInfo(kCGWindowListOnScreen | kCGWindowListNoDesktop, kCGNullWindowID)
+        arr = CG.CGWindowListCopyWindowInfo(1 | 16, 0)  # OnScreen | ExcludeDesktop
         if not arr:
-            return None
+            return None, None, None
 
-        count   = CF.CFArrayGetCount(arr)
-        windows = []
+        result = None, None, None
+        count  = CF.CFArrayGetCount(arr)
         for i in range(count):
             w = CF.CFArrayGetValueAtIndex(arr, i)
             if not w:
                 continue
-            pid_ref = CF.CFDictionaryGetValue(w, key_pid)
-            if not pid_ref:
-                continue
-            pid_val = ctypes.c_int32(0)
-            CF.CFNumberGetValue(pid_ref, kCFNumberSInt32Type, ctypes.byref(pid_val))
-
             layer_ref = CF.CFDictionaryGetValue(w, key_layer)
             layer_val = ctypes.c_int32(0)
             if layer_ref:
                 CF.CFNumberGetValue(layer_ref, kCFNumberSInt32Type, ctypes.byref(layer_val))
             if layer_val.value != 0:
                 continue
-
-            title      = _cfstr_value(CF.CFDictionaryGetValue(w, key_name))
-            owner_name = _cfstr_value(CF.CFDictionaryGetValue(w, key_owner))
-            if title:
-                windows.append({'pid': pid_val.value, 'title': title, 'owner': owner_name})
+            owner = _str(CF.CFDictionaryGetValue(w, key_owner))
+            title = _str(CF.CFDictionaryGetValue(w, key_name))
+            pid_ref = CF.CFDictionaryGetValue(w, key_pid)
+            pid_val = ctypes.c_int32(0)
+            if pid_ref:
+                CF.CFNumberGetValue(pid_ref, kCFNumberSInt32Type, ctypes.byref(pid_val))
+            if owner:
+                result = owner, pid_val.value, title
+                break
 
         CF.CFRelease(arr)
         CF.CFRelease(key_pid)
         CF.CFRelease(key_layer)
         CF.CFRelease(key_name)
         CF.CFRelease(key_owner)
-
-        # Pass 1: exact PID match (works for Chrome, Safari, etc.)
-        for w in windows:
-            if w['pid'] == app_pid:
-                return w['title']
-
-        # Pass 2: match by owner name (needed for Firefox multi-process)
-        if app_name:
-            for w in windows:
-                if w['owner'] and app_name.lower() in w['owner'].lower():
-                    return w['title']
-
-        return None
+        return result
     except Exception:
-        return None
+        return None, None, None
 
 
 def get_active_app():
     try:
         if platform.system() == "Darwin":
-            from AppKit import NSWorkspace
-            app = NSWorkspace.sharedWorkspace().frontmostApplication()
-            if not app:
-                return None
+            from AppKit import NSWorkspace, NSRunningApplication
 
-            app_name  = app.localizedName()
-            bundle_id = app.bundleIdentifier() or ''
-            window_title = None
+            # Use window list order for frontmost app — more reliable than
+            # NSWorkspace.frontmostApplication() which Firefox doesn't update correctly.
+            owner_name, owner_pid, window_title = _get_frontmost_window()
+
+            if owner_name:
+                # Find the NSRunningApplication for this owner to get bundle_id
+                running = NSWorkspace.sharedWorkspace().runningApplications()
+                bundle_id = ''
+                app_name  = owner_name
+                for a in running:
+                    if a.processIdentifier() == owner_pid:
+                        bundle_id = a.bundleIdentifier() or ''
+                        app_name  = a.localizedName() or owner_name
+                        break
+            else:
+                # Fallback to NSWorkspace
+                app = NSWorkspace.sharedWorkspace().frontmostApplication()
+                if not app:
+                    return None
+                app_name     = app.localizedName()
+                bundle_id    = app.bundleIdentifier() or ''
+                window_title = None
+                owner_pid    = app.processIdentifier()
 
             bid = bundle_id.lower()
             is_browser = any(b in bid for b in ('chrome', 'firefox', 'safari', 'edge', 'brave', 'browser'))
 
-            if is_browser:
-                # Primary: CGWindowListCopyWindowInfo via ctypes.
-                # Calls CoreGraphics.framework directly — no pyobjc needed,
-                # always available on macOS, nothing to bundle in PyInstaller.
-                try:
-                    window_title = _cgwindow_title(app.processIdentifier(), app_name)
-                except Exception:
-                    pass
-
+            if is_browser and not window_title:
+                # Window title already comes from _get_frontmost_window for most cases.
                 # Fallback: AppleScript for Chrome/Safari/Edge/Brave
-                if not window_title:
-                    window_title = _get_browser_title(bid)
+                window_title = _get_browser_title(bid)
 
             primary = classify_window_title(app_name, bundle_id, window_title)
             return {
