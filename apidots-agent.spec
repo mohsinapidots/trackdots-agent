@@ -5,7 +5,19 @@ a = Analysis(
     pathex=[],
     binaries=[],
     datas=[],
-    hiddenimports=[],
+    hiddenimports=[
+        # pynput backends — must be explicit or PyInstaller misses them
+        'pynput.keyboard._darwin',
+        'pynput.keyboard._win32',
+        'pynput.mouse._darwin',
+        'pynput.mouse._win32',
+        'pynput._util.darwin',
+        'pynput._util.win32',
+        # Other common missing modules
+        'AppKit',
+        'Foundation',
+        'pkg_resources.py2_warn',
+    ],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],

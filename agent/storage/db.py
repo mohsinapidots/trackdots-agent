@@ -50,6 +50,7 @@ def init_db():
         mouse_distance INTEGER NOT NULL,
         screenshot_path TEXT,
         primary_app TEXT,
+        window_title TEXT,
         sync_status TEXT NOT NULL DEFAULT 'pending',
         created_at REAL NOT NULL
     )
@@ -69,6 +70,14 @@ def init_db():
         VALUES (1, 0, NULL, strftime('%s','now'))
     """)
 
+    # Schema migrations — add columns that may be missing in existing databases
+    try:
+        existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(activity_blocks)")}
+        if 'window_title' not in existing_cols:
+            cur.execute("ALTER TABLE activity_blocks ADD COLUMN window_title TEXT")
+            log.info("Migrated DB: added window_title column")
+    except Exception as e:
+        log.warning("Schema migration check failed: %s", e)
 
     conn.commit()
     conn.close()
@@ -89,8 +98,9 @@ def save_block(block: dict):
         mouse_distance,
         screenshot_path,
         primary_app,
+        window_title,
         created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, (
         block["block_uuid"],
         block["start"],
@@ -101,6 +111,7 @@ def save_block(block: dict):
         block["mouse_distance"],
         block.get("screenshot_path"),
         block["primary_app"],
+        block.get("window_title"),
         block["created_at"]
     ))
 
@@ -110,6 +121,16 @@ def save_block(block: dict):
 def get_pending_blocks(limit=10):
     conn = get_conn()
     cur = conn.cursor()
+
+    # Ensure window_title column exists (safe migration for pre-existing DBs)
+    try:
+        existing_cols = {row[1] for row in cur.execute("PRAGMA table_info(activity_blocks)")}
+        if 'window_title' not in existing_cols:
+            cur.execute("ALTER TABLE activity_blocks ADD COLUMN window_title TEXT")
+            conn.commit()
+            log.info("Migrated DB: added window_title column (lazy)")
+    except Exception:
+        pass
 
     cur.execute(
         """
@@ -124,6 +145,7 @@ def get_pending_blocks(limit=10):
         mouse_distance,
         screenshot_path,
         primary_app,
+        window_title,
         sync_status,
         created_at
         FROM activity_blocks

@@ -142,20 +142,22 @@ def sync():
             mouse_distance,
             screenshot_path,
             primary_app,
+            window_title,
             sync_status,
             created_at,
         ) = block
 
         payload = {
-            "block_uuid": block_uuid,
-            "start": iso(start_ts),
-            "end": iso(end_ts),
-            "idle": bool(idle),
-            "keys": keys,
-            "mouse_clicks": mouse_clicks,
+            "block_uuid":    block_uuid,
+            "start":         iso(start_ts),
+            "end":           iso(end_ts),
+            "idle":          bool(idle),
+            "keys":          keys,
+            "mouse_clicks":  mouse_clicks,
             "mouse_distance": mouse_distance,
-            "primary_app": primary_app,
-            "created_at": iso(created_at),
+            "primary_app":   primary_app,
+            "window_title":  window_title,
+            "created_at":    iso(created_at),
         }
 
 

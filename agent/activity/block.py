@@ -18,6 +18,7 @@ class ActivityBlock:
         self.mouse_clicks   = 0
         self.mouse_distance = 0
         self.apps           = {}
+        self.app_titles     = {}   # app_name -> most recent window_title
         self.idle           = False
         self.block_uuid     = str(uuid.uuid4())
         self.screenshot_path = None
@@ -31,6 +32,8 @@ class ActivityBlock:
             name  = app["name"]
             title = app.get("window_title")
             self.apps[name] = self.apps.get(name, 0) + 1
+            if title:
+                self.app_titles[name] = title
             # Log whenever the active app or tab changes
             bundle = app.get("bundle_id", "")
             browser = None
@@ -75,7 +78,8 @@ class ActivityBlock:
             log.error("Screenshot capture exception: %s", e)
             self.screenshot_path = None
 
-        primary_app = max(self.apps, key=self.apps.get) if self.apps else None
+        primary_app   = max(self.apps, key=self.apps.get) if self.apps else None
+        window_title  = self.app_titles.get(primary_app) if primary_app else None
 
         return {
             "start":           self.start_ts,
@@ -86,6 +90,7 @@ class ActivityBlock:
             "mouse_distance":  self.mouse_distance,
             "screenshot_path": self.screenshot_path,
             "primary_app":     primary_app,
+            "window_title":    window_title,
             "block_uuid":      self.block_uuid,
             "created_at":      time.time(),
         }

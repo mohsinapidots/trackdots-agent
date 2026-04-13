@@ -1,7 +1,28 @@
 import time
 import os
+import sys
 import json
 from pathlib import Path
+
+# ── Bootstrap dirs & crash log FIRST ─────────────────────────────────────────
+# Use raw stdlib only — no agent imports — so this runs even if imports fail.
+# This ensures ~/.TrackDots/logs/ and data/ always exist, giving us a place
+# to write crash output before anything else.
+_BASE = Path(os.environ.get('TRACKDOTS_DIR', str(Path.home() / '.TrackDots')))
+for _d in (_BASE, _BASE / 'logs', _BASE / 'screenshots', _BASE / 'data'):
+    try:
+        _d.mkdir(parents=True, exist_ok=True)
+    except Exception:
+        pass
+
+# Redirect stderr to the log file immediately so any import crash is captured
+try:
+    _crash_log = open(_BASE / 'logs' / 'agent.log', 'a', buffering=1)
+    sys.stderr = _crash_log
+except Exception:
+    pass
+# ─────────────────────────────────────────────────────────────────────────────
+
 from dotenv import load_dotenv
 load_dotenv(Path(__file__).resolve().parents[1] / ".env", override=False)
 from agent.bootstrap import ensure_device_registered
