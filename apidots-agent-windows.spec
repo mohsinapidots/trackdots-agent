@@ -8,8 +8,10 @@ a = Analysis(
     hiddenimports=[
         'pynput.keyboard._win32',
         'pynput.mouse._win32',
+        'pynput._util.win32',
         'mss',
         'mss.windows',
+        'pkg_resources.py2_warn',
     ],
     hookspath=[],
     hooksconfig={},
