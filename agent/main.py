@@ -17,7 +17,7 @@ for _d in (_BASE, _BASE / 'logs', _BASE / 'screenshots', _BASE / 'data'):
 
 # Redirect stderr to the log file immediately so any import crash is captured
 try:
-    _crash_log = open(_BASE / 'logs' / 'agent.log', 'a', buffering=1)
+    _crash_log = open(_BASE / 'logs' / 'agent.log', 'a', buffering=1, encoding='utf-8', errors='replace')
     sys.stderr = _crash_log
 except Exception:
     pass

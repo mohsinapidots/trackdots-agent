@@ -42,7 +42,7 @@ class ActivityBlock:
                     browser = b
                     break
             if browser and title and title.lower() != name.lower():
-                label = f"{browser} → {name} | {title}"
+                label = f"{browser} -> {name} | {title}"
             elif browser and title:
                 label = f"{browser} | {title}"
             elif title and title.lower() != name.lower():
