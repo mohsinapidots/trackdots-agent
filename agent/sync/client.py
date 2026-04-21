@@ -61,14 +61,17 @@ def upload_screenshot(block_uuid, screenshot_path):
 
     url = f"{SCREENSHOT_UPLOAD_URL}{block_uuid}/"
 
-    with open(path, "rb") as f:
-        r = requests.post(
-            url,
-            headers=headers,
-            files={"file": f},
-            data={"block_uuid": block_uuid},
-            timeout=15,
-        )
+    # Read bytes into memory first so the file handle is fully closed before
+    # we call unlink() — on Windows the handle stays locked until GC otherwise.
+    file_bytes = path.read_bytes()
+
+    r = requests.post(
+        url,
+        headers=headers,
+        files={"file": (path.name, file_bytes, "image/webp")},
+        data={"block_uuid": block_uuid},
+        timeout=15,
+    )
 
     if r.status_code != 201:
         raise RuntimeError(
@@ -76,11 +79,21 @@ def upload_screenshot(block_uuid, screenshot_path):
         )
 
     # Delete local file after successful upload
-    try:
-        path.unlink()
-        log.info("Deleted synced screenshot: %s", path.name)
-    except Exception as e:
-        log.warning("Could not delete screenshot %s: %s", path.name, e)
+    import sys, time as _time
+    for attempt in range(3):
+        try:
+            path.unlink(missing_ok=True)
+            log.info("Deleted synced screenshot: %s", path.name)
+            break
+        except PermissionError:
+            if sys.platform == "win32" and attempt < 2:
+                _time.sleep(0.2)  # give Windows a moment to release any OS handles
+            else:
+                log.warning("Could not delete screenshot %s (PermissionError)", path.name)
+                break
+        except Exception as e:
+            log.warning("Could not delete screenshot %s: %s", path.name, e)
+            break
 
 
 def sync_device_user():
