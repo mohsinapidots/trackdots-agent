@@ -4,7 +4,7 @@ All paths come from agent.paths — single source of truth.
 """
 import json
 import os
-from agent.paths import BASE_DIR, SESSION_FILE, DEVICE_TOKEN, ensure_dirs
+from agent.paths import BASE_DIR, SESSION_FILE, DEVICE_TOKEN, CREDENTIALS_FILE, ensure_dirs
 
 
 def get_device_token() -> str:
@@ -47,3 +47,25 @@ def get_user_session() -> dict:
 def clear_user_session():
     if SESSION_FILE.exists():
         SESSION_FILE.unlink()
+
+
+def save_credentials(username: str, password: str):
+    ensure_dirs()
+    CREDENTIALS_FILE.write_text(
+        json.dumps({'username': username, 'password': password}, indent=2)
+    )
+    CREDENTIALS_FILE.chmod(0o600)
+
+
+def get_credentials() -> dict:
+    if not CREDENTIALS_FILE.exists():
+        return {}
+    try:
+        return json.loads(CREDENTIALS_FILE.read_text())
+    except Exception:
+        return {}
+
+
+def clear_credentials():
+    if CREDENTIALS_FILE.exists():
+        CREDENTIALS_FILE.unlink()

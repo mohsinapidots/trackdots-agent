@@ -10,6 +10,9 @@ from agent.security.keychain import (
     clear_user_session,
     get_device_token,
     set_device_token,
+    save_credentials,
+    get_credentials,
+    clear_credentials,
 )
 
 API_BASE = "http://127.0.0.1:8000"
@@ -22,16 +25,23 @@ class TrackerMenu(rumps.App):
         # Persistent menu items
         self.status_item = rumps.MenuItem("Loading…")
 
-        self.login_item = rumps.MenuItem("Sign in to Apidots", self.open_login)
-        self.pause_item = rumps.MenuItem("Pause tracking", self.pause)
-        self.resume_item = rumps.MenuItem("Resume tracking", self.resume)
-        self.logout_item = rumps.MenuItem("Logout", self.logout)
-        self.logs_item = rumps.MenuItem("Open logs", self.open_logs)
-        self.quit_item = rumps.MenuItem("Quit", self.quit)
+        self.login_item   = rumps.MenuItem("Sign in to Apidots", self.open_login)
+        self.pause_item   = rumps.MenuItem("Pause tracking", self.pause)
+        self.resume_item  = rumps.MenuItem("Resume tracking", self.resume)
+        self.logout_item  = rumps.MenuItem("Logout", self.logout)
+        self.forget_item  = rumps.MenuItem("Forget account", self.forget_account)
+        self.logs_item    = rumps.MenuItem("Open logs", self.open_logs)
+        self.quit_item    = rumps.MenuItem("Quit", self.quit)
 
         # Timer for status refresh
         self.timer = rumps.Timer(self.update_status, 5)
         self.timer.start()
+
+        # Auto-login if credentials are saved but session is gone
+        if not self.user_logged_in():
+            creds = get_credentials()
+            if creds.get('username') and creds.get('password'):
+                self.authenticate(creds['username'], creds['password'], silent=True)
 
         self.refresh_menu()
 
@@ -66,6 +76,7 @@ class TrackerMenu(rumps.App):
 
         self.menu.add(None)
         self.menu.add(self.logout_item)
+        self.menu.add(self.forget_item)
         self.menu.add(self.logs_item)
         self.menu.add(None)
         self.menu.add(self.quit_item)
@@ -84,18 +95,20 @@ class TrackerMenu(rumps.App):
     # ------------------------------------------------------------------
 
     def open_login(self, _):
+        saved = get_credentials()
         email_prompt = rumps.Window(
-            title="Apidots Login",
+            title="TrackDots Login",
             message="Enter your username",
             ok="Next",
             cancel="Cancel",
+            default_text=saved.get('username', ''),
         )
         email_resp = email_prompt.run()
         if not email_resp.clicked:
             return
 
         password_prompt = rumps.Window(
-            title="Apidots Login",
+            title="TrackDots Login",
             message="Enter your password",
             ok="Login",
             cancel="Cancel",
@@ -107,7 +120,7 @@ class TrackerMenu(rumps.App):
 
         self.authenticate(email_resp.text.strip(), pass_resp.text.strip())
 
-    def authenticate(self, email, password):
+    def authenticate(self, email, password, silent=False):
         try:
             r = requests.post(
                 f"{API_BASE}/api/auth/login/",
@@ -115,20 +128,31 @@ class TrackerMenu(rumps.App):
                 timeout=10,
             )
         except Exception:
-            rumps.alert("Cannot reach server")
+            if not silent:
+                rumps.alert("Cannot reach server")
             return
 
         if r.status_code != 200:
-            rumps.alert("Login failed")
+            if not silent:
+                rumps.alert("Login failed")
             return
 
         data = r.json()
         set_user_session(data["access"], data["refresh"])
+        save_credentials(email, password)
         self.ensure_device_registered()
         self.refresh_menu()
 
     def logout(self, _):
+        # Clear session tokens only — credentials are kept so auto-login
+        # works next time the app starts or the user clicks Sign in.
         clear_user_session()
+        self.refresh_menu()
+
+    def forget_account(self, _):
+        """Remove saved credentials — user must type them in next time."""
+        clear_user_session()
+        clear_credentials()
         self.refresh_menu()
 
     def user_logged_in(self):

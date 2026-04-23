@@ -16,6 +16,7 @@ DATA_DIR        = BASE_DIR / 'data'
 
 # --- files ---
 SESSION_FILE    = BASE_DIR / 'session.json'
+CREDENTIALS_FILE = BASE_DIR / 'credentials.json'
 STATE_FILE      = BASE_DIR / 'state.json'
 DEVICE_TOKEN    = BASE_DIR / 'device_token'
 AGENT_PID       = BASE_DIR / 'agent.pid'
