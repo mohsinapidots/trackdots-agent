@@ -142,6 +142,14 @@ def main():
         TICK,
     )
 
+    # Write actual Python PID so Electron's killAgent() targets this process
+    # directly, not the PyInstaller bootloader that spawned us.
+    from agent.paths import AGENT_PID
+    try:
+        AGENT_PID.write_text(str(os.getpid()))
+    except Exception:
+        pass
+
     # SIGTERM (sent by Electron on quit/logout) bypasses try/finally by default.
     # Convert it to SystemExit so the finally flush block runs cleanly.
     def _handle_sigterm(signum, frame):
@@ -283,6 +291,11 @@ def main():
             log.info("Shutdown: final sync completed")
         except Exception as e:
             log.error("Shutdown flush failed: %s", e)
+        try:
+            from agent.paths import AGENT_PID
+            AGENT_PID.unlink(missing_ok=True)
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
