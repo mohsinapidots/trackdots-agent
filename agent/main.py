@@ -2,6 +2,7 @@ import time
 import os
 import sys
 import json
+import signal
 from pathlib import Path
 
 # ── Bootstrap dirs & crash log FIRST ─────────────────────────────────────────
@@ -140,6 +141,10 @@ def main():
         BLOCK_DURATION,
         TICK,
     )
+
+    # SIGTERM (sent by Electron on quit/logout) bypasses try/finally by default.
+    # Convert it to SystemExit so the finally flush block runs cleanly.
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(SystemExit(0)))
 
     kb    = KeyboardTracker()
     mouse = MouseTracker()
