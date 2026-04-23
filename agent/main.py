@@ -292,24 +292,31 @@ def main():
     except (KeyboardInterrupt, SystemExit):
         pass
     finally:
-        # Finalize and sync the current in-progress block before exit so that
-        # logout / quit / SIGTERM don't silently lose the last few minutes.
+        from agent.paths import AGENT_PID, SHUTDOWN_FLAG
+        log.info("Shutdown: starting flush (block=%s)",
+                 "present" if block is not None else "none")
+        # 1. Finalize and save block to local DB (fast — no network)
         try:
             if block is not None:
                 data = block.finalize()
                 save_block(data)
                 log.info("Shutdown: block finalized (%s keys, %s clicks)",
                          data.get("keys", 0), data.get("mouse_clicks", 0))
-            sync()
-            log.info("Shutdown: final sync completed")
         except Exception as e:
-            log.error("Shutdown flush failed: %s", e)
+            log.error("Shutdown: block finalize failed: %s", e)
+        # 2. Remove shutdown flag NOW so Electron stops waiting and moves on.
+        #    Sync happens after — Electron won't block on it.
         try:
-            from agent.paths import AGENT_PID, SHUTDOWN_FLAG
             AGENT_PID.unlink(missing_ok=True)
             SHUTDOWN_FLAG.unlink(missing_ok=True)
         except Exception:
             pass
+        # 3. Sync saved blocks to server (best-effort — may fail if session cleared)
+        try:
+            sync()
+            log.info("Shutdown: sync completed")
+        except Exception as e:
+            log.error("Shutdown: sync failed: %s", e)
 
 
 if __name__ == "__main__":
