@@ -22,6 +22,7 @@ API_BASE = os.getenv("APIDOTS_API_BASE", "http://127.0.0.1:8000")
 INGEST_URL            = f"{API_BASE}/api/ingest/activity/"
 SCREENSHOT_UPLOAD_URL = f"{API_BASE}/api/screenshots/upload/"
 ASSIGN_USER_URL       = f"{API_BASE}/api/devices/assign-user/"
+DEVICE_LOG_URL        = f"{API_BASE}/api/device/log/"
 
 BATCH_SIZE = int(os.getenv("APIDOTS_BATCH_SIZE", "5"))
 TIMEOUT = int(os.getenv("APIDOTS_TIMEOUT", "5"))
@@ -94,6 +95,23 @@ def upload_screenshot(block_uuid, screenshot_path):
         except Exception as e:
             log.warning("Could not delete screenshot %s: %s", path.name, e)
             break
+
+
+def report_sync_error(error_message: str, block_uuid: str = None):
+    """Fire-and-forget: post a sync_error event to Device Logs on the server."""
+    try:
+        device_token = get_device_token()
+        msg = f"Sync error: {error_message}"
+        if block_uuid:
+            msg += f" (block {block_uuid[:8]})"
+        requests.post(
+            DEVICE_LOG_URL,
+            json={"event": "sync_error", "message": msg, "level": "error"},
+            headers={"X-DEVICE-TOKEN": device_token},
+            timeout=5,
+        )
+    except Exception:
+        pass  # never interrupt the main loop over a logging call
 
 
 def sync_device_user():
@@ -215,4 +233,5 @@ def sync():
             backoff = compute_backoff(sync_state.consecutive_failures + 1)
             sync_state.record_failure(backoff)
             log.warning("Sync error: %s", e)
+            report_sync_error(str(e), block_uuid)
             break
