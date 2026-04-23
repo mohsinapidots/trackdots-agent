@@ -144,7 +144,9 @@ def main():
 
     # SIGTERM (sent by Electron on quit/logout) bypasses try/finally by default.
     # Convert it to SystemExit so the finally flush block runs cleanly.
-    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(SystemExit(0)))
+    def _handle_sigterm(signum, frame):
+        raise SystemExit(0)
+    signal.signal(signal.SIGTERM, _handle_sigterm)
 
     kb    = KeyboardTracker()
     mouse = MouseTracker()
