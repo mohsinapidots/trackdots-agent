@@ -298,7 +298,7 @@ def main():
         # 1. Finalize and save block to local DB (fast — no network)
         try:
             if block is not None:
-                data = block.finalize()
+                data = block.finalize(take_screenshot=False)
                 save_block(data)
                 log.info("Shutdown: block finalized (%s keys, %s clicks)",
                          data.get("keys", 0), data.get("mouse_clicks", 0))

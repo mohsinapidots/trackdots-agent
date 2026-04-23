@@ -53,29 +53,29 @@ class ActivityBlock:
                 log.info("App: %s", label)
                 self._last_label = label
 
-    def finalize(self):
+    def finalize(self, take_screenshot=True):
         paused, _ = get_agent_state()
         if paused:
             self.idle            = True
             self.screenshot_path = None
         else:
-            # A block is idle only if there was NO activity during it.
-            # Checking system idle time at finalization is wrong — the user
-            # may have been active earlier in the block and stopped at the end.
             has_activity = (self.keys > 0 or self.mouse_clicks > 0 or self.mouse_distance > 50)
             self.idle    = not has_activity
 
-        # Capture screenshot — log error if it fails
-        try:
-            result = capture_screenshot()
-            if result:
-                self.screenshot_path = result["path"]
-                log.info("Screenshot captured: %s", self.screenshot_path)
-            else:
-                log.warning("Screenshot capture returned None — Screen Recording permission may be missing")
+        # Skip screenshot on shutdown — capture_screenshot() can hang
+        if take_screenshot:
+            try:
+                result = capture_screenshot()
+                if result:
+                    self.screenshot_path = result["path"]
+                    log.info("Screenshot captured: %s", self.screenshot_path)
+                else:
+                    log.warning("Screenshot capture returned None — Screen Recording permission may be missing")
+                    self.screenshot_path = None
+            except Exception as e:
+                log.error("Screenshot capture exception: %s", e)
                 self.screenshot_path = None
-        except Exception as e:
-            log.error("Screenshot capture exception: %s", e)
+        else:
             self.screenshot_path = None
 
         primary_app   = max(self.apps, key=self.apps.get) if self.apps else None
