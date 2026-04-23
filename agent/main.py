@@ -152,7 +152,8 @@ def main():
     last_cleanup = time.time()
     was_paused   = False
 
-    while True:
+    try:
+     while True:
       try:
         time.sleep(TICK)
         now = time.time()
@@ -259,6 +260,22 @@ def main():
 
       except Exception as e:
         log.error("Main loop error (will retry): %s", e, exc_info=True)
+
+    except (KeyboardInterrupt, SystemExit):
+        pass
+    finally:
+        # Finalize and sync the current in-progress block before exit so that
+        # logout / quit / SIGTERM don't silently lose the last few minutes.
+        try:
+            if block is not None:
+                data = block.finalize()
+                save_block(data)
+                log.info("Shutdown: block finalized (%s keys, %s clicks)",
+                         data.get("keys", 0), data.get("mouse_clicks", 0))
+            sync()
+            log.info("Shutdown: final sync completed")
+        except Exception as e:
+            log.error("Shutdown flush failed: %s", e)
 
 
 if __name__ == "__main__":
