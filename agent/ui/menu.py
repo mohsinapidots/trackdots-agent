@@ -37,12 +37,6 @@ class TrackerMenu(rumps.App):
         self.timer = rumps.Timer(self.update_status, 5)
         self.timer.start()
 
-        # Auto-login if credentials are saved but session is gone
-        if not self.user_logged_in():
-            creds = get_credentials()
-            if creds.get('username') and creds.get('password'):
-                self.authenticate(creds['username'], creds['password'], silent=True)
-
         self.refresh_menu()
 
     # ------------------------------------------------------------------
@@ -120,7 +114,7 @@ class TrackerMenu(rumps.App):
 
         self.authenticate(email_resp.text.strip(), pass_resp.text.strip())
 
-    def authenticate(self, email, password, silent=False):
+    def authenticate(self, email, password):
         try:
             r = requests.post(
                 f"{API_BASE}/api/auth/login/",
@@ -128,13 +122,11 @@ class TrackerMenu(rumps.App):
                 timeout=10,
             )
         except Exception:
-            if not silent:
-                rumps.alert("Cannot reach server")
+            rumps.alert("Cannot reach server")
             return
 
         if r.status_code != 200:
-            if not silent:
-                rumps.alert("Login failed")
+            rumps.alert("Login failed")
             return
 
         data = r.json()
