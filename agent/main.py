@@ -167,11 +167,24 @@ def main():
     last_cleanup = time.time()
     was_paused   = False
 
+    from agent.paths import SHUTDOWN_FLAG
+    # Clear any stale flag from a previous run
+    try:
+        SHUTDOWN_FLAG.unlink(missing_ok=True)
+    except Exception:
+        pass
+
     try:
      while True:
       try:
         time.sleep(TICK)
         now = time.time()
+
+        # Check for shutdown flag written by Electron on quit/logout.
+        # More reliable than SIGTERM which only hits the PyInstaller bootloader.
+        if SHUTDOWN_FLAG.exists():
+            log.info("Shutdown flag detected — flushing and exiting")
+            raise SystemExit(0)
 
         paused = is_paused()
 
@@ -292,8 +305,9 @@ def main():
         except Exception as e:
             log.error("Shutdown flush failed: %s", e)
         try:
-            from agent.paths import AGENT_PID
+            from agent.paths import AGENT_PID, SHUTDOWN_FLAG
             AGENT_PID.unlink(missing_ok=True)
+            SHUTDOWN_FLAG.unlink(missing_ok=True)
         except Exception:
             pass
 
