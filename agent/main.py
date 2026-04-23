@@ -5,6 +5,14 @@ import json
 import signal
 from pathlib import Path
 
+# When frozen by PyInstaller, point requests/certifi at the bundled CA bundle.
+# Without this, HTTPS syncs fail on Windows with "invalid path: .../certifi/cacert.pem".
+if getattr(sys, 'frozen', False):
+    _cert = Path(sys._MEIPASS) / 'certifi' / 'cacert.pem'
+    if _cert.exists():
+        os.environ.setdefault('REQUESTS_CA_BUNDLE', str(_cert))
+        os.environ.setdefault('SSL_CERT_FILE',      str(_cert))
+
 # ── Bootstrap dirs & crash log FIRST ─────────────────────────────────────────
 # Use raw stdlib only — no agent imports — so this runs even if imports fail.
 # This ensures ~/.TrackDots/logs/ and data/ always exist, giving us a place

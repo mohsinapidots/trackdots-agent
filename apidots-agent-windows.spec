@@ -1,10 +1,13 @@
 # -*- mode: python ; coding: utf-8 -*-
+import certifi
 
 a = Analysis(
     ['agent/main.py'],
     pathex=[],
     binaries=[],
-    datas=[],
+    datas=[
+        (certifi.where(), 'certifi'),
+    ],
     hiddenimports=[
         'pynput.keyboard._win32',
         'pynput.mouse._win32',
