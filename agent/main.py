@@ -84,7 +84,10 @@ def get_electron_state():
     """Read pause/tracking state written by Electron app."""
     try:
         if STATE_FILE.exists():
-            data = json.loads(STATE_FILE.read_text())
+            # Explicit UTF-8 — on Windows the default encoding is cp1252 which
+            # causes a UnicodeDecodeError on Electron's UTF-8 JSON, silently
+            # swallowed by except, leaving is_paused() always returning False.
+            data = json.loads(STATE_FILE.read_text(encoding='utf-8'))
             return data.get("state")
     except Exception:
         pass
@@ -259,7 +262,7 @@ def main():
                 pf = PERM_WARNING
                 if data.get("keys", 0) == 0 and data.get("mouse_clicks", 0) == 0:
                     try:
-                        cur_count = json.loads(pf.read_text()).get("count", 0) if pf.exists() else 0
+                        cur_count = json.loads(pf.read_text(encoding='utf-8')).get("count", 0) if pf.exists() else 0
                     except Exception:
                         cur_count = 0
                     pf.write_text(json.dumps({"type": "input_monitoring", "count": cur_count + 1, "ts": str(now)}))

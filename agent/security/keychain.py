@@ -13,7 +13,7 @@ def get_device_token() -> str:
             "Device token not found. "
             "Please log in via the TrackDots app."
         )
-    return DEVICE_TOKEN.read_text().strip()
+    return DEVICE_TOKEN.read_text(encoding='utf-8').strip()
 
 
 def set_device_token(token: str):
@@ -39,7 +39,7 @@ def get_user_session() -> dict:
     if not SESSION_FILE.exists():
         return {'access': None, 'refresh': None}
     try:
-        return json.loads(SESSION_FILE.read_text())
+        return json.loads(SESSION_FILE.read_text(encoding='utf-8'))
     except Exception:
         return {'access': None, 'refresh': None}
 
@@ -61,7 +61,7 @@ def get_credentials() -> dict:
     if not CREDENTIALS_FILE.exists():
         return {}
     try:
-        return json.loads(CREDENTIALS_FILE.read_text())
+        return json.loads(CREDENTIALS_FILE.read_text(encoding='utf-8'))
     except Exception:
         return {}
 

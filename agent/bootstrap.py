@@ -20,7 +20,7 @@ def get_electron_session():
     if not SESSION_FILE.exists():
         return None
     try:
-        data = json.loads(SESSION_FILE.read_text())
+        data = json.loads(SESSION_FILE.read_text(encoding='utf-8'))
         return data.get("access")
     except Exception:
         return None
