@@ -7,6 +7,22 @@ ensure_dirs()
 
 LOG_FILE = LOGS_DIR / "agent.log"
 
+
+class _SafeRotatingFileHandler(RotatingFileHandler):
+    """RotatingFileHandler that skips rotation when the log file is locked.
+
+    On Windows, renaming an open file raises PermissionError (WinError 32).
+    This happens when a user has agent.log open in Notepad or another editor
+    while the handler tries to rotate. Skipping the rotation is safer than
+    filling stderr with 'Logging error' tracebacks on every log line.
+    """
+    def doRollover(self):
+        try:
+            super().doRollover()
+        except PermissionError:
+            pass  # file locked by another process — keep writing to current log
+
+
 def get_logger(name: str):
     logger = logging.getLogger(name)
     logger.setLevel(logging.INFO)
@@ -19,16 +35,14 @@ def get_logger(name: str):
             "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
         )
         try:
-            handler = RotatingFileHandler(
+            handler = _SafeRotatingFileHandler(
                 LOG_FILE,
                 maxBytes=5_000_000,
                 backupCount=3,
                 encoding='utf-8',
-                errors='replace',   # replace unencodable chars instead of crashing
+                errors='replace',
             )
         except Exception:
-            # Fall back to stderr if the log file can't be opened
-            # (e.g. quarantine/permission issue on first launch)
             handler = logging.StreamHandler(sys.stderr)
         handler.setFormatter(formatter)
         logger.addHandler(handler)
