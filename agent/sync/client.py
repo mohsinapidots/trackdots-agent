@@ -97,13 +97,16 @@ def upload_screenshot(block_uuid, screenshot_path):
             break
 
 
-def report_sync_error(error_message: str, block_uuid: str = None):
+def report_sync_error(error_message: str, block_uuid: str = None, response_body: str = None):
     """Fire-and-forget: post a sync_error event to Device Logs on the server."""
     try:
         device_token = get_device_token()
         msg = f"Sync error: {error_message}"
         if block_uuid:
             msg += f" (block {block_uuid[:8]})"
+        if response_body:
+            # Include first 300 chars of server response so staff can diagnose 500s
+            msg += f" | server: {response_body[:300]}"
         requests.post(
             DEVICE_LOG_URL,
             json={"event": "sync_error", "message": msg, "level": "error"},
@@ -233,5 +236,11 @@ def sync():
             backoff = compute_backoff(sync_state.consecutive_failures + 1)
             sync_state.record_failure(backoff)
             log.warning("Sync error: %s", e)
-            report_sync_error(str(e), block_uuid)
+            resp_body = None
+            if hasattr(e, 'response') and e.response is not None:
+                try:
+                    resp_body = e.response.text
+                except Exception:
+                    pass
+            report_sync_error(str(e), block_uuid, resp_body)
             break
